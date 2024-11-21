@@ -13,20 +13,18 @@ program
 const { host, port, cache } = program.opts();
 
 const handleRequest = async (req, res) => {
-    const statusCode = req.url.slice(1); // Отримуємо статус код із URL.
+    const statusCode = req.url.slice(1);
     const filePath = path.join(cache, `${statusCode}.jpg`);
 
     try {
         if (req.method === 'GET') {
-            // Перевіряємо, чи існує файл у кеші.
             let fileData;
             try {
                 fileData = await fs.readFile(filePath);
             } catch {
-                // Якщо файл не знайдено, завантажуємо з `http.cat`.
                 const response = await superagent.get(`https://http.cat/${statusCode}`).responseType('arraybuffer');
                 fileData = Buffer.from(response.body);
-                await fs.writeFile(filePath, fileData); // Кешуємо файл.
+                await fs.writeFile(filePath, fileData);
             }
             res.writeHead(200, { 'Content-Type': 'image/jpeg' });
             res.end(fileData);
