@@ -3,6 +3,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const superagent = require('superagent');
 const { program } = require('commander');
+
 program
     .requiredOption('-h, --host <host>', 'server host')
     .requiredOption('-p, --port <port>', 'server port')
@@ -12,26 +13,23 @@ program
 const { host, port, cache } = program.opts();
 
 const handleRequest = async (req, res) => {
-    const urlParts = req.url.split('/');
-    const statusCode = urlParts[urlParts.length - 1];
+    const statusCode = req.url.slice(1); // Отримуємо статус код із URL.
     const filePath = path.join(cache, `${statusCode}.jpg`);
 
     try {
         if (req.method === 'GET') {
+            // Перевіряємо, чи існує файл у кеші.
+            let fileData;
             try {
-                const fileData = await fs.readFile(filePath);
-                res.writeHead(200, { 'Content-Type': 'image/jpeg' });
-                res.end(fileData);
-            } catch (error) {
-                if (error.code === 'ENOENT') {
-                    const response = await superagent.get(`https://http.cat/${statusCode}`).responseType('arraybuffer');
-                    await fs.writeFile(filePath, Buffer.from(response.body));
-                    res.writeHead(200, { 'Content-Type': 'image/jpeg' });
-                    res.end(Buffer.from(response.body));
-                } else {
-                    throw error;
-                }
+                fileData = await fs.readFile(filePath);
+            } catch {
+                // Якщо файл не знайдено, завантажуємо з `http.cat`.
+                const response = await superagent.get(`https://http.cat/${statusCode}`).responseType('arraybuffer');
+                fileData = Buffer.from(response.body);
+                await fs.writeFile(filePath, fileData); // Кешуємо файл.
             }
+            res.writeHead(200, { 'Content-Type': 'image/jpeg' });
+            res.end(fileData);
         } else if (req.method === 'PUT') {
             const body = [];
             req.on('data', chunk => body.push(chunk));
@@ -41,9 +39,14 @@ const handleRequest = async (req, res) => {
                 res.end('201 Created');
             });
         } else if (req.method === 'DELETE') {
-            await fs.unlink(filePath);
-            res.writeHead(200, { 'Content-Type': 'text/plain' });
-            res.end('200 OK');
+            try {
+                await fs.unlink(filePath);
+                res.writeHead(200, { 'Content-Type': 'text/plain' });
+                res.end('200 OK');
+            } catch {
+                res.writeHead(404, { 'Content-Type': 'text/plain' });
+                res.end('404 Not Found');
+            }
         } else {
             res.writeHead(405, { 'Content-Type': 'text/plain' });
             res.end('405 Method Not Allowed');
@@ -55,13 +58,6 @@ const handleRequest = async (req, res) => {
     }
 };
 
-const server = http.createServer(handleRequest);
-
-
-server.listen(port, host, () => {
+http.createServer(handleRequest).listen(port, host, () => {
     console.log(`Server running at http://${host}:${port}/`);
-});
-
-server.on('error', (err) => {
-    console.error(`Server error: ${err.message}`);
 });
